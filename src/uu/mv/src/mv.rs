@@ -1,3 +1,4 @@
+// This file is part of the uutils coreutils package.
 //
 // (c) Orvar Segerström <orvarsegerstrom@gmail.com>
 // (c) Sokovikov Evgeniy  <skv-headless@yandex.ru>
@@ -17,9 +18,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 #[cfg(unix)]
-use std::os::{unix, unix::prelude::MetadataExt};
+use std::os::unix;
 #[cfg(windows)]
-use std::os::{windows, windows::fs::MetadataExt};
+use std::os::windows;
 use std::path::{Path, PathBuf};
 use uucore::backup_control::{self, BackupMode};
 use uucore::display::Quotable;
@@ -257,36 +258,10 @@ fn exec(files: &[OsString], b: &Behavior) -> UResult<()> {
                 return Err(MvError::NoSuchFile(source.quote().to_string()).into());
             }
 
-            // Check if target and source are hard linked
-            let mut is_hard_link = false;
-
-            if let Ok(target_meta) = fs::symlink_metadata(target) {
-                // Hard links are not allowed for directories
-                if !target_meta.is_dir() {
-                    let source_meta = fs::symlink_metadata(source)
-                        .map_err(|_| MvError::NoSuchFile(source.quote().to_string()))?;
-                    // Check for a hard link
-                    #[cfg(unix)]
-                    {
-                        is_hard_link = source_meta.ino() == target_meta.ino();
-                    }
-                    #[cfg(windows)]
-                    {
-                        let source_id = source_meta.file_index();
-                        let target_id = target_meta.file_index();
-                        is_hard_link = source_id == target_id;
-                    }
-                }
-            }
-
             // GNU semantics are: if the source and target are the same, no move occurs and we print an error
-            if source.eq(target) || is_hard_link {
+            if source.eq(target) {
                 // Done to match GNU semantics for the dot file
-                if source.eq(Path::new("."))
-                    || source.ends_with("/.")
-                    || source.is_file()
-                    || is_hard_link
-                {
+                if source.eq(Path::new(".")) || source.ends_with("/.") || source.is_file() {
                     return Err(MvError::SameFile(
                         source.quote().to_string(),
                         target.quote().to_string(),
@@ -445,7 +420,7 @@ fn rename(
             OverwriteMode::NoClobber => return Ok(()),
             OverwriteMode::Interactive => {
                 if !prompt_yes!("overwrite {}?", to.quote()) {
-                    return Ok(());
+                    return Err(io::Error::new(io::ErrorKind::Other, ""));
                 }
             }
             OverwriteMode::Force => {}
